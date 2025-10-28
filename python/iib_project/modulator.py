@@ -1,8 +1,5 @@
 import numpy as np
 from scipy.signal import upfirdn
-import matplotlib
-matplotlib.use('TkAgg')
-import matplotlib.pyplot as plt
 
 class Modulator:
     """ Modulator class responsible for converting bitstream into a simulated optical signal, supports polarization multiplexing"""
