@@ -21,7 +21,6 @@ class CD_Equalizer:
         self.overlap = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]  # Overlapped block
         self.N_cd = self.get_Ncd() # Overlap length
         self.H_cd = self.get_Hcd() # Frequency response of CD equalizer
-        self.H_cd_fxp = [Fxp(h).like(self.fft_t) for h in self.H_cd]  # Fixed-point H_cd
 
         self.fft = FFT_fp(M_fft, DW_io, DW_fft)
 
@@ -29,70 +28,62 @@ class CD_Equalizer:
         N_cd = int(np.ceil(6.67 / (2 * np.pi * self.c) * self.D * self.L * (self.wavelength ** 2) * (self.symbol_rate ** 2) * self.sps))
         if N_cd >= self.N_fft:
             raise ValueError(f"Calculated overlap length N_cd={N_cd} exceeds or equals FFT size N_fft={self.N_fft}. Increase N_fft.")
+        if N_cd % 2 != 0:
+            N_cd += 1
         return N_cd
 
     def get_Hcd(self) -> np.ndarray:
         n = np.arange(-self.N_fft // 2, self.N_fft // 2)
-        H_cd = np.exp(-1j * np.pi * self.wavelength ** 2 * self.D * self.L / self.c * (n * 2 * self.nyq_freq / self.N_fft) ** 2)
-        return H_cd
+        H_cd = np.exp(-1j * np.pi * self.wavelength ** 2 * self.D * self.L / self.c *(n * 2 * self.nyq_freq / self.N_fft) ** 2) #filter is symmetric around 0 -> non-causal
+        # convert to fixed-point
+        H_cd_fxp = [Fxp(val).like(self.fft_t) for val in H_cd]
+        # align frequency bins for FFT
+        H_cd_fxp = H_cd_fxp[self.N_fft // 2:] + H_cd_fxp[:self.N_fft // 2]
+        return H_cd_fxp
+    
+    def reset(self):
+        self.curr = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]
+        self.prev = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]
+        self.overlap = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]
 
-    def pipeline(self, x: List[Fxp]) -> None:
+    def roll(self, x: List[Fxp], shift: int) -> List[Fxp]:
+        N = len(x)
+        shift = shift % N
+        return x[-shift:] + x[:-shift]
+
+    def pipeline(self, x: List[Fxp]):
         if len(x) != self.N_fft:
-            raise ValueError(f"Input length {len(x)} does not match FFT size {self.N_fft}")
-        self.prev = self.curr.copy()
-        self.curr = x.copy()
-        self.curr = [Fxp(val).like(self.io_t) for val in self.curr] # Ensure correct fixed-point format
-        for i in range(self.N_cd):
-            self.overlap[i] = self.prev[self.N_fft - self.N_cd + i] # Last N_cd samples from previous block
-        for i in range(self.N_cd, self.N_fft):
-            self.overlap[i] = self.curr[i - self.N_cd] # First N_fft - N_cd samples from current block
+            raise ValueError(f"Input block size {len(x)} does not match N_fft={self.N_fft}")
+        self.prev = self.curr
+        self.curr = x
+        self.overlap = self.prev[-self.N_cd:] + self.curr[:-self.N_cd]
+
+    def equalize_block(self) -> List[Fxp]:
+        # Apply circular shift to input to accoount for non-causal filter
+        overlap_shifted = self.roll(self.overlap, self.N_cd // 2)
+        X = self.fft.fft(overlap_shifted, inverse=False)
+        Y = [X[k] * self.H_cd[k] for k in range(self.N_fft)]
+        y = self.fft.fft(Y, inverse=True)
+        # Apply circular shift back to original order
+        y_shifted = self.roll(y, -self.N_cd // 2)
+        # Discard first N_cd samples
+        return y_shifted[self.N_cd:]
+
+    def pad_input(self, x: List[Fxp]) -> List[Fxp]:
+        min_blocks = np.ceil(len(x) / (self.N_fft - self.N_cd))
+        total_len = int(min_blocks * self.N_fft)
+        pad_len = total_len - len(x)
+        x_padded = x + [Fxp(0).like(self.io_t) for _ in range(pad_len)]
+        return x_padded
 
     def equalize(self, x: List[Fxp]) -> List[Fxp]:
-        self.pipeline(x)
-        X_fft = self.fft.fft(self.overlap, inverse=False)
-        Y_fft = [Fxp(X_fft[i] * self.H_cd_fxp[i]).like(self.fft_t) for i in range(self.N_fft)]
-        y_ifft = self.fft.fft(Y_fft, inverse=True)
-        y_out = [Fxp(0).like(self.io_t) for _ in range(self.N_fft - self.N_cd)]
-        for i in range(self.N_cd, self.N_fft):
-            y_out[i - self.N_cd] = Fxp(y_ifft[i]).like(self.io_t)
-        return y_out
-
-    # Test
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    from iib_project.channel import Channel
-    from iib_project.modulator import Modulator
-    from iib_project.plotting import plot_tx_constellation
-
-    # Example parameters
-    D = 17  # ps/(nm·km)
-    L = 3   # km
-    symbol_rate = 32  # GBd
-    sps = 2  # Samples per symbol
-    wavelength = 1550  # nm
-    M_fft = 6 # FFT size exponent (N_fft = 2^M_fft)
-    DW_io = 16  # Input/Output data width
-    DW_fft = 24  # FFT data width
-    SNR = 0
-
-    modulator = Modulator(1)
-    channel = Channel(SNR=SNR, sps=sps, symbol_rate=symbol_rate*1e9, D=D, L=L*1e3, wavelength=wavelength*1e-9)
-    cd_equalizer = CD_Equalizer(D=D, L=L, symbol_rate=symbol_rate, sps=sps, wavelength=wavelength, M_fft=M_fft, DW_io=DW_io, DW_fft=DW_fft)
-    print(cd_equalizer.N_cd)
-
-    # Generate a test signal
-    num_symbols = 2**6
-    tx_symbols = modulator.gen_symbols(num_symbols)
-    H_cd_channel = np.fft.fft(channel.add_chromatic_dispersion(tx_symbols)) / np.fft.fft(tx_symbols)
-
-    # compare channel and equalizer frequency responses (check phases)
-    plt.figure()
-    freq = np.fft.fftfreq(len(H_cd_channel), d=1/(sps * symbol_rate * 1e9))
-    plt.plot(freq, np.angle(H_cd_channel), label='Channel CD Phase Response')
-    plt.plot(freq, np.angle(cd_equalizer.H_cd), label='Equalizer CD Phase Response', linestyle='--')
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Phase (radians)')
-    plt.title('Chromatic Dispersion Phase Response Comparison')
-    plt.legend()
-    plt.grid()
-    plt.show()
+        x_padded = self.pad_input(x)
+        y = []
+        num_blocks = len(x_padded) // self.N_fft
+        self.reset() #clear pipeline
+        for i in range(num_blocks):
+            block = x_padded[i * self.N_fft : (i + 1) * self.N_fft]
+            self.pipeline(block)
+            y_block = self.equalize_block()
+            y.extend(y_block)
+        return y[:len(x)]  # Remove padding

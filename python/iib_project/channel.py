@@ -1,25 +1,15 @@
 import numpy as np
-import scipy.fft
 
 class Channel:
     """ A simulation of the optical channel. Adds noise, dispersion and other impairments to the signal. """
-    def __init__(self, SNR: float, sps: int, symbol_rate: float, D: float, L: float, wavelength: float):
-        """
-        Initialize the Channel with given parameters.
-
-        SNR: Signal-to-Noise Ratio in dB
-        sps: Samples per symbol
-        symbol_rate: Symbol rate in symbols/s
-        D: Dispersion parameter in ps/(nm*km)
-        L: Fiber length in m
-        wavelength: Central wavelength in m
-        """
-        self.SNR = SNR
-        self.sps = sps
-        self.symbol_rate = symbol_rate
-        self.D = D
-        self.L = L
-        self.wavelength = wavelength
+    def __init__(self, SNR: float, sps: int, symbol_rate: float, D: float, L: float, wavelength: float, c: float = 3e8):
+        self.SNR = SNR #dB
+        self.sps = sps 
+        self.symbol_rate = symbol_rate * 1e9 # GBd -> Bd
+        self.D = D * 1e-6 # ps/(nm*km) -> s/(m*m)
+        self.L = L * 1e3 # km -> m
+        self.wavelength = wavelength * 1e-9 # nm -> m
+        self.c = c # m/s
 
     def add_AWGN(self, signal: np.ndarray) -> np.ndarray:
         """ Add Additive White Gaussian Noise (AWGN) to the signal. """
@@ -31,18 +21,13 @@ class Channel:
 
     def add_chromatic_dispersion(self ,signal: np.ndarray) -> np.ndarray:
         """ Add chromatic dispersion to the signal. """
-        c = 299792458  # Speed of light in m/s
-        D_conv = self.D * 1e-6 # Convert to seconds and meters
-        
-        beta2 = - (D_conv * (self.wavelength**2)) / (2 * np.pi * c)  # s^2/m
-
         N = len(signal)
-        freq = scipy.fft.fftfreq(N, d=1/(self.sps * self.symbol_rate))
-        H_cd = np.exp(-1j * (0.5 * beta2 * (2 * np.pi * freq)**2) * self.L)
-        signal_freq = scipy.fft.fft(signal)
-        signal_cd_freq = signal_freq * H_cd
-        signal_cd = scipy.fft.ifft(signal_cd_freq)
-
+        n = np.arange(-N//2, N//2)
+        G = np.exp(1j * np.pi * self.wavelength ** 2 * self.D * self.L / self.c * (n * self.sps * self.symbol_rate / N) ** 2)
+        signal_fft = np.fft.fftshift(np.fft.fft(signal))
+        signal_cd_fft = signal_fft * G
+        signal_cd = np.fft.ifft(np.fft.ifftshift(signal_cd_fft))
         return signal_cd
+         
 
-
+        

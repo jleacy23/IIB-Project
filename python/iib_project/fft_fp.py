@@ -21,6 +21,12 @@ class FFT_fp:
             reversed_indices[i] = int(b[::-1], 2)
         return reversed_indices
 
+    def fft_shift(self, x: List[Fxp]) -> List[Fxp]:
+        if len(x) != self.N:
+            raise ValueError(f"Input length {len(x)} does not match FFT size {self.N}")
+        half_N = self.N // 2
+        return x[half_N:] + x[:half_N]
+
     def fft(self, x: List[Fxp], inverse: bool) -> List[Fxp]:
         if len(x) != self.N:
             raise ValueError(f"Input length {len(x)} does not match FFT size {self.N}")

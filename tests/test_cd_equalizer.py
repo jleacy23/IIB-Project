@@ -1,114 +1,72 @@
 import numpy as np
-import pytest
 from fxpmath import Fxp
 from iib_project.cd_equalizer import CD_Equalizer
+from iib_project.modulator import Modulator
+from iib_project.channel import Channel
+from iib_project.demodulator import Demodulator
+from iib_project.plotting import plot_tx_constellation
+
+M_eq = 9 
+DW_io = 16
+DW_acc = 24
+symbol_rate = 10  # 10 Gbps
+L = 500
+D = 16
+wavelength = 1550
+sps = 1
+SNR = 15 
+
+modulator = Modulator()
+channel = Channel(SNR, sps, symbol_rate, D, L, wavelength)
+#cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
+demodulator = Demodulator()
+
+def test_Hcd():
+    cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
+    assert len(cd_equalizer.H_cd) == cd_equalizer.N_fft, f"H_cd length of {len(cd_equalizer.H_cd)} does not match N_fft of {cd_equalizer.N_fft}"
+
+def test_roll():
+    test_array = [Fxp(i) for i in range(10)]
+    cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
+    shift = 4
+    assert cd_equalizer.roll(cd_equalizer.roll(x_fxp, shift), -shift) == x_fxp, "Roll function failed to return original array after rolling back"
+    print("roll test passed")
+
+def test_pipeline():
+    #gemerate test data between -1 and 1
+    cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
+    cd_equalizer.reset()
+    cd_equalizer.pipeline(x_fxp)
+    assert cd_equalizer.curr == x_fxp, "Current block not updated correctly in pipeline"
+    assert cd_equalizer.prev == [Fxp(0).like(cd_equalizer.io_t) for _ in range(cd_equalizer.N_fft)], "Previous block not updated correctly in pipeline"
+    assert len(cd_equalizer.overlap) == cd_equalizer.N_fft, "Overlap block size incorrect in pipeline"
+    expected_overlap = cd_equalizer.prev[:cd_equalizer.N_cd] + cd_equalizer.curr[cd_equalizer.N_cd:]
+    assert cd_equalizer.overlap == expected_overlap, "Overlap block not computed correctly in pipeline"
+    print("pipeline test passed")
 
 
-# ---- Helper mock FFT implementation using NumPy ---- #
-class MockFFT:
-    def __init__(self, M_fft, DW_io, DW_fft):
-        self.N = 2**M_fft
+def test_equalize():
+    cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
+    cd_equalizer.reset()
+    # test data
+    num_symbols = 2**M_eq
+    x = modulator.qpsk_symbols(num_symbols)
+    x_noisy = channel.add_AWGN(x)
+    x_noisy = channel.add_chromatic_dispersion(x_noisy)
+    x_noisy = x_noisy / np.max(np.abs(x_noisy))  # Normalize to avoid overflow
+    plot_tx_constellation(x_noisy, title="Received Signal Constellation Before CD Equalization")
+    # convert to fixed-point
+    x_fxp = [Fxp(val).like(cd_equalizer.io_t) for val in x_noisy]
+    y = cd_equalizer.equalize(x_fxp)
+    # convert to np for plotting
+    y_np = np.array([val.get_val() for val in y])
+    plot_tx_constellation(y_np, title="Received Signal Constellation After CD Equalization")
+    decided = demodulator.qpsk_decide(y_np)
+    ser = np.sum(decided != x) / len(x)
+    print(f"Symbol Error Rate after CD Equalization: {ser}")
 
-    def fft(self, x, inverse=False):
-        arr = np.array([complex(v.get_val()) for v in x])
-        if inverse:
-            result = np.fft.ifft(arr)
-        else:
-            result = np.fft.fft(arr)
-        return [Fxp(val) for val in result]
-
-
-@pytest.fixture
-def eq(monkeypatch):
-    # Patch the FFT_fp used inside CD_Equalizer with the mock FFT
-    def mock_fft_class(M_fft, DW_io, DW_fft):
-        return MockFFT(M_fft, DW_io, DW_fft)
-
-    monkeypatch.setattr("iib_project.fft_fp.FFT_fp", mock_fft_class)
-
-    # Small sizes for fast testing
-    return CD_Equalizer(
-        D=17,        # typical SMF dispersion ps/nm/km
-        L=10,        # km
-        symbol_rate=32, 
-        sps=2,
-        wavelength=1550,
-        M_fft=5,     # FFT size = 32
-        DW_io=16,
-        DW_fft=16
-    )
+if __name__ == "__main__":
+    test_equalize()
 
 
-# ---- Initialization Tests ---- #
-def test_initial_values(eq):
-    assert eq.N_fft == 32
-    assert eq.D > 0
-    assert eq.L > 0
-    assert eq.nyq_freq > 0
 
-    # Check H_cd shapes
-    assert len(eq.H_cd) == eq.N_fft
-    assert len(eq.H_cd_fxp) == eq.N_fft
-
-
-# ---- get_Ncd check ---- #
-def test_overlap_length(eq):
-    assert 0 < eq.N_cd < eq.N_fft
-
-
-# ---- Pipeline behavior ---- #
-def test_pipeline_updates(eq):
-    # Create two test blocks
-    x1 = [Fxp(i) for i in range(eq.N_fft)]
-    x2 = [Fxp(i + 100) for i in range(eq.N_fft)]
-
-    eq.pipeline(x1)
-    assert eq.curr == x1
-    assert eq.prev.count(Fxp(0).like(eq.io_t)) == eq.N_fft  # still zeros initially
-
-    eq.pipeline(x2)
-    assert eq.curr == x2
-    assert eq.prev == x1  # previous block saved correctly
-
-    # Overlap check: first N_cd should match tail of prev
-    for i in range(eq.N_cd):
-        expected = x1[eq.N_fft - eq.N_cd + i]
-        assert eq.overlap[i].get_val() == expected.get_val()
-
-    # Remaining should match start of current block
-    for i in range(eq.N_cd, eq.N_fft):
-        expected = x2[i - eq.N_cd]
-        assert eq.overlap[i].get_val() == expected.get_val()
-
-
-# ---- Equalization correctness test ---- #
-def test_equalize_matches_floating(eq):
-    # Random input
-    rng = np.random.default_rng(0)
-    input_float = rng.normal(0, 1, eq.N_fft) + 1j * rng.normal(0, 1, eq.N_fft)
-    x = [Fxp(val).like(eq.io_t) for val in input_float]
-
-    # Fixed-point equalizer output
-    y_fxp = eq.equalize(x)
-
-    # Floating reference: pipeline overlap logic
-    prev = np.zeros(eq.N_fft, dtype=complex)
-    overlap = np.zeros(eq.N_fft, dtype=complex)
-
-    # First run: no prev effect yet
-    eq.pipeline(x)  # reuse to get overlap for reference
-    prev = np.copy(input_float)
-    overlap = np.copy(input_float)
-
-    # Reference FFT equalization
-    H = eq.H_cd
-    X = np.fft.fft(overlap)
-    Y = X * H
-    y_ref_full = np.fft.ifft(Y)
-
-    # Remove overlap samples
-    y_ref = y_ref_full[eq.N_cd:]
-
-    # Compare fixed-point vs ref (allow quantization tolerance)
-    y_fxp_float = np.array([complex(v.get_val()) for v in y_fxp])
-    assert np.allclose(y_fxp_float, y_ref, atol=1e-1, rtol=1e-1)

@@ -3,37 +3,14 @@ from scipy.signal import upfirdn
 
 class Modulator:
     """ Modulator class responsible for converting bitstream into a simulated optical signal, supports polarization multiplexing"""
-    def __init__(self, M: int):
-        self.M = M
 
-    def gen_symbols(self, num_symbols: int) -> np.ndarray:
-        """ Converts a randomly generated bitstream into QAM symbols with constellation size 4^M"""
-        bits_per_symbol = 2 * self.M
-        num_bits = num_symbols * bits_per_symbol
-        bitstream = np.random.randint(0, 2, num_bits)
+    def qpsk_symbols(self, n: int) -> np.ndarray:
+        """ Generate QPSK symbols """
+        bits = np.random.randint(0, 2, n * 2)
+        symbols = (2 * bits[0::2] - 1) + 1j * (2 * bits[1::2] - 1)
+        symbols /= np.sqrt(2)  # Normalize power
+        return symbols
 
-        # Reshape bitstream into symbols
-        symbols = bitstream.reshape((num_symbols, bits_per_symbol))
-
-        # Map bits to QAM symbols
-        constellation_size = 4 ** self.M
-        symbol_indices = np.zeros(num_symbols, dtype=int)
-
-        for i in range(num_symbols):
-            for j in range(bits_per_symbol):
-                symbol_indices[i] += symbols[i, j] << (bits_per_symbol - j - 1)
-
-        # Generate QAM constellation points
-        real_parts = np.array([2 * (i % (2 ** self.M)) - (2 ** self.M - 1) for i in range(constellation_size)])
-        imag_parts = np.array([2 * (i // (2 ** self.M)) - (2 ** self.M - 1) for i in range(constellation_size)])
-        constellation = real_parts + 1j * imag_parts
-
-        #Normalise
-        normalisation = np.sqrt(3 / (2 * (4 ** self.M - 1)))
-
-        qam_symbols = constellation[symbol_indices] * normalisation
-
-        return qam_symbols
     
     def rrc_filter(self, span: int, sps: int, rolloff: float) -> np.ndarray:
         """ Root raised cosine filter"""
