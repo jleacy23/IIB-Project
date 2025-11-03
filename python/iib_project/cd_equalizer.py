@@ -54,9 +54,9 @@ class CD_Equalizer:
     def pipeline(self, x: List[Fxp]):
         if len(x) != self.N_fft:
             raise ValueError(f"Input block size {len(x)} does not match N_fft={self.N_fft}")
-        self.prev = self.curr
-        self.curr = x
-        self.overlap = self.prev[-self.N_cd:] + self.curr[:-self.N_cd]
+        self.prev = self.curr.copy()
+        self.curr = list(x)
+        self.overlap = self.prev[-self.N_cd:] + self.curr[:self.N_fft-self.N_cd]
 
     def equalize_block(self) -> List[Fxp]:
         # Apply circular shift to input to accoount for non-causal filter
@@ -69,21 +69,27 @@ class CD_Equalizer:
         # Discard first N_cd samples
         return y_shifted[self.N_cd:]
 
-    def pad_input(self, x: List[Fxp]) -> List[Fxp]:
-        min_blocks = np.ceil(len(x) / (self.N_fft - self.N_cd))
-        total_len = int(min_blocks * self.N_fft)
-        pad_len = total_len - len(x)
-        x_padded = x + [Fxp(0).like(self.io_t) for _ in range(pad_len)]
-        return x_padded
+    def pad_and_block(self, x: List[Fxp]) -> List[List[Fxp]]:
+        step = self.N_fft - self.N_cd 
+        x_len = len(x)
+        num_blocks = int(np.ceil((x_len + self.N_cd) / step))
+        total_len = num_blocks * step + self.N_cd
+        x_padded = list(x) + [Fxp(0).like(self.io_t) for _ in range(total_len - x_len)]
+        blocks = []
+        for i in range(num_blocks):
+            start_idx = i * step
+            block = x_padded[start_idx : start_idx + self.N_fft]
+            if len(block) < self.N_fft:
+                block += [Fxp(0).like(self.io_t) for _ in range(self.N_fft - len(block))]
+            blocks.append(block)
+        return blocks
 
     def equalize(self, x: List[Fxp]) -> List[Fxp]:
-        x_padded = self.pad_input(x)
+        blocks = self.pad_and_block(x)
         y = []
-        num_blocks = len(x_padded) // self.N_fft
-        self.reset() #clear pipeline
-        for i in range(num_blocks):
-            block = x_padded[i * self.N_fft : (i + 1) * self.N_fft]
+        self.reset()
+        for block in blocks:
             self.pipeline(block)
             y_block = self.equalize_block()
             y.extend(y_block)
-        return y[:len(x)]  # Remove padding
+        return y[:len(x)]  # Trim to original length
