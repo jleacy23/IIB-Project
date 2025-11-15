@@ -16,8 +16,6 @@ class CD_Equalizer:
         
         self.io_t = Fxp(dtype=f'fxp-s{DW_io}/{DW_io-1}-complex')
         self.fft_t = Fxp(dtype=f'fxp-s{DW_fft}/{DW_fft - M_fft - 1}-complex')
-        self.curr = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]  # Current input block 
-        self.prev = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]  # Previous input block 
         self.overlap = [Fxp(0).like(self.io_t) for _ in range(self.N_fft)]  # Overlapped block
         self.N_cd = self.get_Ncd() # Overlap length
         self.H_cd = self.get_Hcd() # Frequency response of CD equalizer
@@ -52,11 +50,10 @@ class CD_Equalizer:
         return x[-shift:] + x[:-shift]
 
     def pipeline(self, x: List[Fxp]):
-        if len(x) != self.N_fft:
-            raise ValueError(f"Input block size {len(x)} does not match N_fft={self.N_fft}")
-        self.prev = self.curr.copy()
-        self.curr = list(x)
-        self.overlap = self.prev[-self.N_cd:] + self.curr[:self.N_fft-self.N_cd]
+        if len(x) != self.N_fft - self.N_cd:
+            raise ValueError(f"Input block size {len(x)} does not match expected size {self.N_fft - self.N_cd}.")
+        # last N_cd samples from previous block
+        self.overlap = self.overlap[self.N_fft - self.N_cd:] + x
 
     def equalize_block(self) -> List[Fxp]:
         # Apply circular shift to input to accoount for non-causal filter
@@ -72,16 +69,10 @@ class CD_Equalizer:
     def pad_and_block(self, x: List[Fxp]) -> List[List[Fxp]]:
         step = self.N_fft - self.N_cd 
         x_len = len(x)
-        num_blocks = int(np.ceil((x_len + self.N_cd) / step))
-        total_len = num_blocks * step + self.N_cd
-        x_padded = list(x) + [Fxp(0).like(self.io_t) for _ in range(total_len - x_len)]
-        blocks = []
-        for i in range(num_blocks):
-            start_idx = i * step
-            block = x_padded[start_idx : start_idx + self.N_fft]
-            if len(block) < self.N_fft:
-                block += [Fxp(0).like(self.io_t) for _ in range(self.N_fft - len(block))]
-            blocks.append(block)
+        num_blocks = int(np.ceil(x_len / step))
+        padded_len = num_blocks * step # no need to prepend zeros, handled in pipeline
+        x_padded = x + [Fxp(0).like(self.io_t) for _ in range(padded_len - x_len)]
+        blocks = [x_padded[i * step : i * step + step] for i in range(num_blocks)]
         return blocks
 
     def equalize(self, x: List[Fxp]) -> List[Fxp]:

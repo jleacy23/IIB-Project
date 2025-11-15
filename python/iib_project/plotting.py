@@ -2,7 +2,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
-def plot_tx_constellation(tx_data: np.ndarray, title="Transmitted Constellation"):
+def plot_constellation(tx_data: np.ndarray, title="Transmitted Constellation"):
     """ Plots constellation diagram"""
     plt.figure(figsize=(6, 6))
     plt.scatter(tx_data.real, tx_data.imag, color='blue', s=1)
