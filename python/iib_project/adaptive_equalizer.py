@@ -76,3 +76,27 @@ class Adaptive_Equalizer:
         print(len(y1_out), len(y2_out))
                 
         return Fxp(y1_out).like(self.acc_t), Fxp(y2_out).like(self.acc_t)
+
+    def bits_per_symbol_CMA(self) -> float:
+        """ Estimate the the bit operations needed to equalize a symbol using CMA """
+        adds = 0
+        mults = 0
+
+        # ops in equalization
+        adds += self.num_taps # complex additions
+        mults += 2 * self.num_taps #complex multiplications
+
+        # ops in updating weights
+        adds += 2 * (self.num_taps + 1)
+        mults += 3
+
+        # convert adds to bit operations
+        add_bits = adds * 2 * 0.5 * 5 * self.acc_t.n_word # 0.5 switching probability, 5 gates in full adder, x2 for complex addition
+        add_bits += mults * 5 * 0.5 * 5 * self.acc_t.n_word # 5 gates in full adder, x5 for complex multiplication
+        mult_bits = mults * 3 * 0.5 * 6 * self.acc_t.n_word**2
+
+        total_bits = add_bits + mult_bits
+        return total_bits
+        
+
+
