@@ -20,11 +20,12 @@ def compare_acc_width():
     wavelength = 1550
     DGDSpec = 1.8
     N_pmd = 1
+    M = 16
 
-    modulator = Modulator()
+    modulator = Modulator(M)
     channel = Channel(SNR=0, sps=sps, symbol_rate=symbol_rate, D=D, L=L, wavelength=wavelength, DGDSpec=DGDSpec, N_pmd=N_pmd)
-    xv = modulator.qpsk_symbols(num_symbols)
-    xh = modulator.qpsk_symbols(num_symbols)
+    xv = modulator.modulate(num_symbols)
+    xh = modulator.modulate(num_symbols)
     x = np.vstack((xv, xh))
     x_pmd = channel.add_pmd(x.T).T
 

@@ -5,6 +5,7 @@ from iib_project.cd_equalizer import CD_Equalizer
 from iib_project.channel import Channel
 from iib_project.modulator import Modulator
 from iib_project.demodulator import Demodulator
+from iib_project.plotting import plot_constellation
 
 def test_fft_width():
     """ Compares SER for different FFT fixed-point widths """
@@ -20,12 +21,14 @@ def test_fft_width():
     sps = 1
     SNR = 20 
 
-    
-    modulator = Modulator()
-    channel = Channel(SNR, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
-    demodulator = Demodulator()
+    M = 64 
 
-    x = modulator.qpsk_symbols(num_symbols)
+    
+    modulator = Modulator(M)
+    channel = Channel(SNR, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
+    demodulator = Demodulator(M)
+
+    x = modulator.modulate(num_symbols)
 
     ser_results = {}
     bits_results = {}
@@ -47,7 +50,7 @@ def test_fft_width():
             y_eq = cd_equalizer.equalize(x_fxp)
 
             y_eq_np = np.array([val.get_val() for val in y_eq])
-            y_decided = demodulator.qpsk_decide(y_eq_np)
+            y_decided = demodulator.decide(y_eq_np)
             ser = np.sum(y_decided != x) / len(x)
             ser_vals.append(ser)
 
@@ -110,11 +113,13 @@ def test_io_width():
     wavelength = 1550
     sps = 1
 
-    modulator = Modulator()
-    channel = Channel(20, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
-    demodulator = Demodulator()
+    M = 64 
 
-    x = modulator.qpsk_symbols(num_symbols)
+    modulator = Modulator(M)
+    channel = Channel(20, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
+    demodulator = Demodulator(M)
+
+    x = modulator.modulate(num_symbols)
     ser_results = {}
 
     for SNR in [15,20,25]:
@@ -132,7 +137,7 @@ def test_io_width():
             y_eq = cd_equalizer.equalize(x_fxp)
 
             y_eq_np = np.array([val.get_val() for val in y_eq])
-            y_decided = demodulator.qpsk_decide(y_eq_np)
+            y_decided = demodulator.decide(y_eq_np)
             ser = np.sum(y_decided != x) / len(x)
             ser_vals.append(ser)
 
@@ -166,5 +171,4 @@ def bits_per_symbol(N_fft, N_cd, DW):
 
 
 if __name__ == "__main__":
-    test_fft_width()
     test_io_width()
