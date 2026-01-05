@@ -78,6 +78,8 @@ class Channel:
     
         return EOutput
 
+    def add_phase_noise(self, 
+
          
 
         

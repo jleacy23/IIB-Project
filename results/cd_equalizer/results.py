@@ -21,7 +21,7 @@ def test_fft_width():
     sps = 1
     SNR = 20 
 
-    M = 64 
+    M = 16 
 
     
     modulator = Modulator(M)
@@ -37,7 +37,9 @@ def test_fft_width():
         channel.SNR = SNR
         x_noisy = channel.add_AWGN(x.reshape(1,-1))
         x_noisy = channel.add_chromatic_dispersion(x_noisy)[0]
-        x_noisy = x_noisy / np.max(np.abs(x_noisy))  
+        # scale so that 95% of values in range +- 1
+        x_noisy = x_noisy / np.percentile(np.abs(x_noisy), 95)
+
         ser_vals = []
 
         for DW_acc in DW_acc_values:
@@ -64,7 +66,7 @@ def test_fft_width():
         plt.bar(index + i * bar_width, ser_results[SNR], bar_width, label=f'SNR={SNR}dB')
     plt.xlabel('Accumulator Bit-Width')
     plt.ylabel('Symbol Error Rate (SER)')
-    plt.title('SER vs Accumulator Bit-Width')
+    plt.title(f'SER vs Accumulator Bit-Width, {M}-QAM')
     plt.xticks(index + bar_width, DW_acc_values)
     plt.yscale('log')
     plt.legend()
@@ -90,7 +92,7 @@ def test_fft_width():
         plt.bar(index + i * bar_width, ser_bits_results[SNR], bar_width, label=f'SNR={SNR}dB')
     plt.xlabel('Accumulator Bit-Width')
     plt.ylabel('Bit Operations per Correct Symbol')
-    plt.title('Bit Operations per Correct Symbol vs Accumulator Bit-Width')
+    plt.title(f'Bit Operations per Correct Symbol vs Accumulator Bit-Widthi, {M}-QAM')
     plt.xticks(index + bar_width, DW_acc_values)
     plt.yscale('log')
     plt.legend()
@@ -113,7 +115,7 @@ def test_io_width():
     wavelength = 1550
     sps = 1
 
-    M = 64 
+    M = 16 
 
     modulator = Modulator(M)
     channel = Channel(20, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
@@ -126,7 +128,7 @@ def test_io_width():
         channel.SNR = SNR
         x_noisy = channel.add_AWGN(x.reshape(1,-1))
         x_noisy = channel.add_chromatic_dispersion(x_noisy)[0]
-        x_noisy = x_noisy / np.max(np.abs(x_noisy))  
+        x_noisy = x_noisy / np.percentile(np.abs(x_noisy), 95)
         ser_vals = []
 
         for DW_io in DW_io_values:
@@ -151,7 +153,7 @@ def test_io_width():
         plt.bar(index + i * bar_width, ser_results[SNR], bar_width, label=f'SNR={SNR}dB')
     plt.xlabel('ADC resolution')
     plt.ylabel('Symbol Error Rate (SER)')
-    plt.title('SER vs ADC resolution')
+    plt.title(f'SER vs ADC resolution, {M}-QAM')
     plt.xticks(index + bar_width, DW_io_values)
     plt.yscale('log')
     plt.legend()
