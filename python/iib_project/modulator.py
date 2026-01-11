@@ -21,7 +21,7 @@ class Modulator:
 
     def qam16_symbols(self, n: int) -> np.ndarray:
         """ Generate 16-QAM symbols """
-        symbols - np.zeros((self.N_pol, n), dtype=complex)
+        symbols = np.zeros((self.N_pol, n), dtype=complex)
         for pol in range(self.N_pol):
             bits = np.random.randint(0, 2, n * 4)
             mapping = {

@@ -24,9 +24,9 @@ def test_fft_width():
     M = 16 
 
     
-    modulator = Modulator(M)
+    modulator = Modulator(M, 1)
     channel = Channel(SNR, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
-    demodulator = Demodulator(M)
+    demodulator = Demodulator(M, 1)
 
     x = modulator.modulate(num_symbols)
 
@@ -39,6 +39,7 @@ def test_fft_width():
         x_noisy = channel.add_chromatic_dispersion(x_noisy)[0]
         # scale so that 95% of values in range +- 1
         x_noisy = x_noisy / np.percentile(np.abs(x_noisy), 95)
+        x_noisy = x_noisy[0] TODO: clean up cd_equalizer to handle multiple pols
 
         ser_vals = []
 
@@ -115,7 +116,7 @@ def test_io_width():
     wavelength = 1550
     sps = 1
 
-    M = 16 
+    M = 4 
 
     modulator = Modulator(M)
     channel = Channel(20, sps, symbol_rate, D, L, wavelength, DGDSpec=0.1, N_pmd=1)
@@ -129,6 +130,7 @@ def test_io_width():
         x_noisy = channel.add_AWGN(x.reshape(1,-1))
         x_noisy = channel.add_chromatic_dispersion(x_noisy)[0]
         x_noisy = x_noisy / np.percentile(np.abs(x_noisy), 95)
+        x_noisy = x_noisy[0]
         ser_vals = []
 
         for DW_io in DW_io_values:

@@ -17,10 +17,10 @@ wavelength = 1550
 sps = 1
 SNR = 15 
 
-modulator = Modulator()
+modulator = Modulator(4, 1)
 channel = Channel(SNR, sps, symbol_rate, D, L, wavelength)
 #cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
-demodulator = Demodulator()
+demodulator = Demodulator(4, 1)
 
 def test_Hcd():
     cd_equalizer = CD_Equalizer(D, L, symbol_rate, sps, wavelength, M_eq, DW_io, DW_acc)
@@ -66,6 +66,8 @@ def test_equalize():
     x_noisy = channel.add_AWGN(x)
     x_noisy = channel.add_chromatic_dispersion(x_noisy)
     x_noisy = x_noisy / np.max(np.abs(x_noisy))  # Normalize to avoid overflow
+    x_noisy = x_noisy[0]
+    print(x_noisy.shape)
     plot_constellation(x_noisy, title="Received Signal Constellation Before CD Equalization")
     # convert to fixed-point
     x_fxp = [Fxp(val).like(cd_equalizer.io_t) for val in x_noisy]
