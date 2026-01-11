@@ -2,7 +2,7 @@ import numpy as np
 
 class Channel:
     """ A simulation of the optical channel. Adds noise, dispersion and other impairments to the signal. """
-    def __init__(self, SNR: float, sps: int, symbol_rate: float, D: float, L: float, wavelength: float, DGDSpec: float, N_pmd: int, c: float = 3e8):
+    def __init__(self, SNR: float, sps: int, symbol_rate: float, D: float, L: float, wavelength: float, DGDSpec: float = 0.3, N_pmd: int = 10, total_linewidth : float = 1e6, c: float = 3e8):
         self.SNR = SNR #dB
         self.sps = sps 
         self.symbol_rate = symbol_rate * 1e9 # GBd -> Bd
@@ -12,6 +12,8 @@ class Channel:
         self.c = c # m/s
         self.DGDSpec = DGDSpec
         self.N_pmd = N_pmd
+        self.total_linewidth = total_linewidth  
+
 
     def add_AWGN(self, signal: np.ndarray) -> np.ndarray:
         """ Add Additive White Gaussian Noise (AWGN) to the signal. """
@@ -78,7 +80,18 @@ class Channel:
     
         return EOutput
 
-    def add_phase_noise(self, 
+    def add_phase_noise(self, signal: np.ndarray) -> np.ndarray:
+        """ Add Wiener Phase Noise to the signal """
+        n_pols, n_samples = signal.shape
+        phase_noise = np.zeros_like(signal, dtype=complex)
+        delta_phi_std = np.sqrt(2 * np.pi * self.total_linewidth / self.symbol_rate)
+        for i in range(n_pols):
+            delta_phi = np.random.randn(n_samples) * delta_phi_std
+            phi = np.cumsum(delta_phi)
+            phase_noise[i] = signal[i] * np.exp(1j * phi)
+
+        return phase_noise
+
 
          
 

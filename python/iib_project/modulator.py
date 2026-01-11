@@ -4,54 +4,67 @@ from scipy.signal import upfirdn
 class Modulator:
     """ Modulator class responsible for converting bitstream into a simulated optical signal, supports polarization multiplexing"""
 
-    def __init__(self, M):
+    def __init__(self, M, N_pol):
         self.M = M
+        self.N_pol = N_pol
 
     def qpsk_symbols(self, n: int) -> np.ndarray:
         """ Generate QPSK symbols """
-        bits = np.random.randint(0, 2, n * 2)
-        symbols = (2 * bits[0::2] - 1) + 1j * (2 * bits[1::2] - 1)
-        symbols /= np.sqrt(2)  # Normalize power
+        symbols = np.zeros((self.N_pol, n), dtype=complex)
+        for pol in range(self.N_pol):
+            bits = np.random.randint(0, 2, n * 2)
+            symbols_pol = (2 * bits[0::2] - 1) + 1j * (2 * bits[1::2] - 1)
+            symbols_pol /= np.sqrt(2)  # Normalize power
+            symbols[pol, :] = symbols_pol
+
         return symbols
 
     def qam16_symbols(self, n: int) -> np.ndarray:
         """ Generate 16-QAM symbols """
-        bits = np.random.randint(0, 2, n * 4)
-        mapping = {
-            (0, 0): -3,
-            (0, 1): -1,
-            (1, 1): 1,
-            (1, 0): 3
-        }
-        symbols = []
-        for i in range(n):
-            real_part = mapping[(bits[4*i], bits[4*i + 1])]
-            imag_part = mapping[(bits[4*i + 2], bits[4*i + 3])]
-            symbols.append(real_part + 1j * imag_part)
-        symbols = np.array(symbols)
-        symbols /= np.sqrt(10)  # Normalize power
+        symbols - np.zeros((self.N_pol, n), dtype=complex)
+        for pol in range(self.N_pol):
+            bits = np.random.randint(0, 2, n * 4)
+            mapping = {
+                (0, 0): -3,
+                (0, 1): -1,
+                (1, 1): 1,
+                (1, 0): 3
+            }
+            symbols_pol = []
+            for i in range(n):
+                real_part = mapping[(bits[4*i], bits[4*i + 1])]
+                imag_part = mapping[(bits[4*i + 2], bits[4*i + 3])]
+                symbols_pol.append(real_part + 1j * imag_part)
+            symbols_pol = np.array(symbols_pol)
+            symbols_pol /= np.sqrt(10)  # Normalize power
+            symbols[pol, :] = symbols_pol
+
         return symbols
 
     def qam64_symbols(self, n: int) -> np.ndarray:
         """ Generate 64-QAM symbols """
-        bits = np.random.randint(0, 2, n * 6)
-        mapping = {
-            (0, 0, 0): -7,
-            (0, 0, 1): -5,
-            (0, 1, 1): -3,
-            (0, 1, 0): -1,
-            (1, 1, 0): 1,
-            (1, 1, 1): 3,
-            (1, 0, 1): 5,
-            (1, 0, 0): 7
-        }
-        symbols = []
-        for i in range(n):
-            real_part = mapping[(bits[6*i], bits[6*i + 1], bits[6*i + 2])]
-            imag_part = mapping[(bits[6*i + 3], bits[6*i + 4], bits[6*i + 5])]
-            symbols.append(real_part + 1j * imag_part)
-        symbols = np.array(symbols)
-        symbols /= np.sqrt(42)  # Normalize power
+        symbols = np.zeros((self.N_pol, n), dtype=complex)
+        for pol in range(self.N_pol):
+            bits = np.random.randint(0, 2, n * 6)
+            mapping = {
+                (0, 0, 0): -7,
+                (0, 0, 1): -5,
+                (0, 1, 1): -3,
+                (0, 1, 0): -1,
+                (1, 1, 0): 1,
+                (1, 1, 1): 3,
+                (1, 0, 1): 5,
+                (1, 0, 0): 7
+            }
+            symbols_pol = []
+            for i in range(n):
+                real_part = mapping[(bits[6*i], bits[6*i + 1], bits[6*i + 2])]
+                imag_part = mapping[(bits[6*i + 3], bits[6*i + 4], bits[6*i + 5])]
+                symbols_pol.append(real_part + 1j * imag_part)
+            symbols_pol = np.array(symbols_pol)
+            symbols_pol /= np.sqrt(42)  # Normalize power
+            symbols[pol, :] = symbols_pol
+
         return symbols
 
     def modulate(self, num_symbols: int) -> np.ndarray:

@@ -2,7 +2,7 @@ import numpy as np
 from fxpmath import Fxp
 class Carrier_Recovery:
     def __init__(self, symbol_rate: float, sps: int, DW_acc: int, DW_io: int):
-        self.symbol_rate = symbol_rate * 10e9 # GHz -> Hz
+        self.symbol_rate = symbol_rate * 1e9 # GHz -> Hz
         self.sps = sps
         self.acc_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_io-1}-complex')
 
@@ -41,36 +41,62 @@ class Carrier_Recovery:
 
         return unwrapped_phase
 
-    def viterbi_viterbi(self, x: Fxp, N: int, total_linewidth: float, snr: float, symbol_energy: float): 
+    def viterbi_viterbi_ref(self, x: np.ndarray, N: int, total_linewidth: float, snr: float, symbol_energy: float) -> np.ndarray:
         w = self.viterbi_viterbi_ML(total_linewidth, snr, symbol_energy, N)
         L = 2 * N + 1
-        thetas = np.zeros(len(x))
+        K = len(x)
 
-        #pad input
-        x_padded = Fxp(np.zeros(len(x) + 2 * N).like(self.acc_t)
-        x_padded[N:-N] = x
-
-        #process each block
-        for i in range(len(x)):
-            x_block = x_padded[i:i+L]
-            filtered = np.complex64(x_block.dot(w))
-            thetas[i] = (np.angle(filtered) - np.pi) / 4
-
-        #unwrap phase
-        thetas_unwrapped = phase_unwrap(thetas)
+        #form overlapping blocks
+        z_blocks = np.zeros((L, K), dtype=complex)
+        for k in range(K):
+            for n in range(-N, N + 1):
+                idx = k + n
+                if idx < 0:
+                    z_blocks[n + N, k] = 0
+                elif idx >= K:
+                    z_blocks[n + N, k] = 0
+                else:
+                    z_blocks[n + N, k] = x[idx]
 
         #apply phase correction
-        corrections = Fxp(np.exp(-1j * thetas_unwrapped)).like(self.acc_t)
+        thetas = (1/4) * np.angle(w.conj() @ (z_blocks ** 4)) - np.pi / 4
+        thetas_unwrapped = self.phase_unwrap(thetas)
+        corrections = np.exp(-1j * thetas_unwrapped)
         y = corrections * x
-
+        
         return y
 
+    def viterbi_viterbi_fxp(self, x: Fxp, N: int, total_linewidth: float, snr: float, symbol_energy: float) -> Fxp:
+        w = self.viterbi_viterbi_ML(total_linewidth, snr, symbol_energy, N)
+        L = 2 * N + 1
+        N_pol, K = x.shape
 
+        y = Fxp(np.zeros((N_pol, K), dtype=complex)).like(self.acc_t)
 
+        for pol in range(N_pol):
+            x_pol = x[pol, :]
 
+            #form overlapping blocks
+            z_blocks = (np.zeros((L, K), dtype=complex))
+            for k in range(K):
+                for n in range(-N, N + 1):
+                    idx = k + n
+                    if idx < 0:
+                        z_blocks[n + N, k] = Fxp(0).like(self.acc_t)
+                    elif idx >= K:
+                        z_blocks[n + N, k] = Fxp(0).like(self.acc_t)
+                    else:
+                        z_blocks[n + N, k] = x_pol[idx]
 
-
+            #apply phase correction
+            thetas = (1/4) * Fxp(np.angle(w.conj() @ (z_blocks ** 4))).like(self.acc_t) - Fxp(np.pi / 4).like(self.acc_t)
+            thetas_unwrapped = self.phase_unwrap(thetas)
+            thetas_unwrapped_fxp = Fxp(thetas_unwrapped).like(self.acc_t)
+            corrections = Fxp(np.exp(-1j * thetas_unwrapped_fxp)).like(self.acc_t)
+            y_pol = corrections * x_pol
+            y[pol, :] = y_pol
         
+        return y
 
 
 
