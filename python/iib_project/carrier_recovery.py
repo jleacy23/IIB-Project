@@ -66,7 +66,7 @@ class Carrier_Recovery:
         
         return y
 
-    def viterbi_viterbi_fxp(self, x: Fxp, N: int, total_linewidth: float, snr: float, symbol_energy: float) -> Fxp:
+    def viterbi_viterbi_fxp(self, x: Fxp, N: int, total_linewidth: float, snr: float, symbol_energy: float, step: int = 1) -> Fxp:
         w = self.viterbi_viterbi_ML(total_linewidth, snr, symbol_energy, N)
         L = 2 * N + 1
         N_pol, K = x.shape
@@ -90,6 +90,9 @@ class Carrier_Recovery:
 
             #apply phase correction
             thetas = (1/4) * Fxp(np.angle(w.conj() @ (z_blocks ** 4))).like(self.acc_t) - Fxp(np.pi / 4).like(self.acc_t)
+            #update thetas every 'step' samples
+            thetas = thetas[::step]
+            thetas = Fxp(np.repeat(thetas, step))[:K].like(self.acc_t)
             thetas_unwrapped = self.phase_unwrap(thetas)
             thetas_unwrapped_fxp = Fxp(thetas_unwrapped).like(self.acc_t)
             corrections = Fxp(np.exp(-1j * thetas_unwrapped_fxp)).like(self.acc_t)

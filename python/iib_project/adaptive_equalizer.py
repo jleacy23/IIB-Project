@@ -7,7 +7,6 @@ class Adaptive_Equalizer:
         self.num_taps = num_taps
         self.io_t = Fxp(dtype=f'fxp-s{DW_io}/{DW_io-1}-complex')
         self.acc_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_io-1}-complex')
-        self.acc_t.info(2)
         self.step_size = Fxp(step_size).like(self.acc_t)
         self.w_1v = Fxp([0]*num_taps).like(self.acc_t)
         self.w_1v[self.num_taps//2] = Fxp(1).like(self.acc_t) #avoids singularity
@@ -40,7 +39,7 @@ class Adaptive_Equalizer:
             raise ValueError(f"Unsupported equalization type: {type}")
         return e1, e2
 
-    def equalize(self, xv: Fxp, xh: Fxp, type: str) -> (Fxp, Fxp):
+    def equalize(self, xv: Fxp, xh: Fxp, type: str, step: int = 1) -> Fxp:
         "Equalize input signals xv and xh"""
         #pad input signals
         pad = self.num_taps - 1
@@ -50,13 +49,16 @@ class Adaptive_Equalizer:
         y1_out = []
         y2_out = []
         # T/2 spaced inputs, T spaced outputs
+        # update equalizer weights every 'step' passes
         e1_converged = False
         for k in range(0, N, 2):
+            update_weights_flag = (k % (2*step) == 0)
             xv_block = xv_padded[k:k+self.num_taps][::-1]
             xh_block = xh_padded[k:k+self.num_taps][::-1]
             y1, y2 = self.equalize_sample(xv_block, xh_block)
             e1, e2 = self.get_errors(y1, y2, xv, xh, type)
-            self.update_weights(xv_block, xh_block, e1, e2)
+            if update_weights_flag:
+                self.update_weights(xv_block, xh_block, e1, e2)
             #print(f'y1: {y1}, y2: {y2}, e1: {e1}, e2: {e2}')
             #print(f'w_1v: {self.w_1v}')
             #print(f'w_1h: {self.w_1h}')
@@ -73,9 +75,12 @@ class Adaptive_Equalizer:
         if e1_converged is False:
             raise Warning("Equalizer did not converge")
 
-        print(len(y1_out), len(y2_out))
-                
-        return Fxp(y1_out).like(self.acc_t), Fxp(y2_out).like(self.acc_t)
+        # cut y1_out to match y2_out length
+        y1_out = y1_out[len(y1_out)-len(y2_out):]
+
+        y_out = Fxp(np.vstack((y1_out, y2_out))).like(self.acc_t)
+
+        return y_out
 
     def bits_per_symbol_CMA(self) -> float:
         """ Estimate the the bit operations needed to equalize a symbol using CMA """
