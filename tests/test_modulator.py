@@ -11,10 +11,8 @@ def test_mod_demod():
 
         symbols = modulator.modulate(num_symbols)
         print(symbols.shape)
-        plot_constellation(symbols, 'TX')
 
         decided = demodulator.decide(symbols)
-        plot_constellation(decided, 'Decided')
 
         ser = np.sum(decided != symbols) / num_symbols
         print(ser)

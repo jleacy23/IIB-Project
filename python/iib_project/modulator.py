@@ -4,9 +4,10 @@ from scipy.signal import upfirdn
 class Modulator:
     """ Modulator class responsible for converting bitstream into a simulated optical signal, supports polarization multiplexing"""
 
-    def __init__(self, M, N_pol):
+    def __init__(self, M, N_pol=1, differential=False):
         self.M = M
         self.N_pol = N_pol
+        self.differential = differential
 
     def qpsk_symbols(self, n: int) -> np.ndarray:
         """ Generate QPSK symbols """

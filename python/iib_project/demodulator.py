@@ -1,7 +1,7 @@
 import numpy as np
 
 class Demodulator:
-    def __init__(self, M, N_pol):
+    def __init__(self, M, N_pol=1):
         self.M = M  # Modulation order
         self.N_pol = N_pol
 

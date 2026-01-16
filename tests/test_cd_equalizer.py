@@ -4,8 +4,7 @@ from fxpmath import Fxp
 from iib_project.cd_equalizer import CD_Equalizer
 from iib_project.modulator import Modulator
 from iib_project.channel import Channel
-from iib_project.demodulator import Demodulator
-from iib_project.plotting import plot_constellation
+from iib_project.demodulator import Demodulator from iib_project.plotting import plot_constellation
 
 M_eq = 7 
 DW_io = 16
