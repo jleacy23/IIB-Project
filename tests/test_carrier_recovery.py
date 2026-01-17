@@ -23,7 +23,7 @@ def test_viterbi_viterbi():
     #Test parameters
     sps = 8
     symbol_rate = 32
-    total_linewidth = 0
+    total_linewidth = 1e5
     snr = 20
     symbol_energy = 1
     N = 5
@@ -37,7 +37,7 @@ def test_viterbi_viterbi():
     modulator = Modulator(M,2)
     channel = Channel(SNR=snr, sps=sps, symbol_rate=symbol_rate, D = 1, L=1, wavelength=1, DGDSpec=0.1, N_pmd=1, total_linewidth=total_linewidth)
     demodulator = Demodulator(M,2)
-    carrier_recovery = Carrier_Recovery(symbol_rate, sps, DW_acc, DW_io, pilot_interval)
+    carrier_recovery = Carrier_Recovery(symbol_rate, sps, DW_acc, pilot_interval)
 
     x = modulator.modulate(num_symbols)
 
@@ -54,13 +54,13 @@ def test_viterbi_viterbi():
 
     #apply Viterbi-Viterbi carrier recovery
     x_fxp = Fxp(x_noisy).like(carrier_recovery.acc_t)
-    y = carrier_recovery.viterbi_viterbi_fxp(x_fxp, N, total_linewidth, snr, symbol_energy/(scaling**2), pilots)
+    y = carrier_recovery.viterbi_viterbi_fxp(x_fxp, N, total_linewidth, snr, symbol_energy/(scaling**2), 16, pilots)
     y = np.array(y).astype(np.complex64)
 
 
-    #plot_constellation(x_noisy[0], title="Noisy input constellation - Vertical Polarization")
+    plot_constellation(x_noisy[0], title="Noisy input constellation - Vertical Polarization")
     plot_constellation(y[0], title="Viterbi-Viterbi output constellation - Vertical Polarization")
-    #plot_constellation(x_noisy[1], title="Noisy input constellation - Horizontal Polarization")
+    plot_constellation(x_noisy[1], title="Noisy input constellation - Horizontal Polarization")
     plot_constellation(y[1], title="Viterbi-Viterbi output constellation - Horizontal Polarization")
 
     # compute SER
@@ -126,6 +126,6 @@ def test_viterbi_viterbi_ref():
 
 if __name__ == "__main__":
     #test_viterbit_ML_filter()
-    #test_viterbi_viterbi()
-    test_viterbi_viterbi_ref()
+    test_viterbi_viterbi()
+    #test_viterbi_viterbi_ref()
     

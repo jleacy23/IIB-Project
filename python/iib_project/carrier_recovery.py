@@ -1,11 +1,15 @@
 import numpy as np
 from fxpmath import Fxp
+from iib_project.cordic import Cordic
+
 class Carrier_Recovery:
-    def __init__(self, symbol_rate: float, sps: int, DW_acc: int, DW_io: int, pilot_interval: int = 1):
+    def __init__(self, symbol_rate: float, sps: int, DW_acc: int, pilot_interval: int = 1):
         self.symbol_rate = symbol_rate * 1e9 # GHz -> Hz
         self.sps = sps
-        self.acc_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_io-1}-complex')
+        self.acc_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_acc-3}-complex') 
+        self.theta_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_acc-3}') # Max value = pi
         self.pilot_interval = pilot_interval
+        self.cordic = Cordic(iterations=DW_acc-3, word_length=DW_acc)
 
     def viterbi_viterbi_ML(self,
                            total_linewidth: float,
@@ -38,36 +42,6 @@ class Carrier_Recovery:
         w /= np.sum(w)
     
         return w.flatten()
-
-
-
-    def phase_unwrap(self, phase: np.ndarray, pilots: np.ndarray) -> np.ndarray:
-        unwrapped_phase = phase.copy()
-        for i in range(1, len(phase)):
-            delta = phase[i] - phase[i - 1]
-            unwrapped_phase[i] = phase[i] + np.floor(0.5 + delta / (2 * np.pi / 4)) * (2 * np.pi / 4)
-
-        # apply pilot-based correction
-        for i in range(len(pilots)):
-            if i == 0:
-                continue
-            theta_pilot = pilots[i]
-            theta_est = unwrapped_phase[i * self.pilot_interval]
-            offset = self.pilot_phase_correction(theta_pilot, theta_est)
-            unwrapped_phase[i * self.pilot_interval:] += offset
-
-        return unwrapped_phase
-
-    def pilot_phase_correction(self, theta_pilot: float, theta_est: float) -> float:
-        delta_theta = theta_pilot - theta_est
-        # wrap to -pi, pi
-        delta_theta = (delta_theta + np.pi) % (2 * np.pi) - np.pi
-
-        offset = np.round(delta_theta / (np.pi / 2)) * (np.pi / 2)
-
-        if np.abs(offset) > 0:
-            print(f'Cycle slip detected: {offset:.2f} rad')
-        return offset
 
     def viterbi_viterbi_ref(self,
                             x: np.ndarray,
@@ -113,7 +87,7 @@ class Carrier_Recovery:
                 current_amb = k_amb
             elif k_amb != current_amb: #cycle slip has occurred
                 delta = (k_amb - current_amb) * np.pi/2
-                theta += delta
+                theta[idx:] += delta
                 current_amb = k_amb
     
         # Apply correction
@@ -121,88 +95,63 @@ class Carrier_Recovery:
     
         return y
 
-    def viterbi_viterbi_fxp(self, x: Fxp, N: int, total_linewidth: float, snr: float, symbol_energy: float, pilots: np.ndarray, step: int = 1) -> Fxp:
-        w = self.viterbi_viterbi_ML(total_linewidth, snr, symbol_energy, N)
-        L = 2 * N + 1
+    def viterbi_viterbi_fxp(self,
+                            x: Fxp,
+                            N: int,
+                            total_linewidth: float,
+                            snr_db: float,
+                            symbol_energy: float,
+                            cordic_its: int,
+                            pilots: Fxp) -> Fxp:
+        """ Implements Viterbi-Viterbi using fixed-point arithmetic and CORDIC """
         N_pol, K = x.shape
-
+        L = 2 * N + 1
+        w = self.viterbi_viterbi_ML(
+            total_linewidth, snr_db, symbol_energy, N
+        )
+        w_fxp = Fxp(w).like(self.acc_t)
         y = Fxp(np.zeros((N_pol, K), dtype=complex)).like(self.acc_t)
-
         for pol in range(N_pol):
-            x_pol = x[pol, :]
-            pilots_pol = pilots[pol, :]
+            # Build sliding window (ignore edges)
+            z_blocks = Fxp(np.zeros((L, K), dtype=complex)).like(self.acc_t)
+            for k in range(N, K - N):
+                z_blocks[:, k] = x[pol, k - N:k + N + 1]
+    
+            # Fourth-power phase
+            z_blocks_4 = Fxp(z_blocks * z_blocks * z_blocks * z_blocks).like(self.acc_t)
+            est = Fxp(w_fxp.conj().dot(z_blocks_4)).like(self.acc_t)
+            phi4 = self.cordic.complex_phase(est)
 
-            #form overlapping blocks
-            z_blocks = (np.zeros((L, K), dtype=complex))
-            for k in range(K):
-                for n in range(-N, N + 1):
-                    idx = k + n
-                    if idx < 0:
-                        z_blocks[n + N, k] = Fxp(0).like(self.acc_t)
-                    elif idx >= K:
-                        z_blocks[n + N, k] = Fxp(0).like(self.acc_t)
-                    else:
-                        z_blocks[n + N, k] = x_pol[idx]
+            # Correct unwrapping (BEFORE dividing by 4)
+            phi4_np = np.unwrap(phi4.get_val())
+            phi4 = Fxp(phi4_np).like(self.theta_t)
+    
+            # Phase estimate
+            theta = Fxp(phi4 / 4 - np.pi / 4).like(self.theta_t)
+    
+            # Phase ambiguity and cycle slip correction with pilots
+            current_amb = None
 
-            #apply phase correction
-            thetas = (1/4) * Fxp(np.angle(w.conj() @ (z_blocks ** 4))).like(self.acc_t) - Fxp(np.pi / 4).like(self.acc_t)
-            #update thetas every 'step' samples
-            thetas = thetas[::step]
-            thetas = Fxp(np.repeat(thetas, step))[:K].like(self.acc_t)
-            thetas_unwrapped = self.phase_unwrap(thetas, pilots_pol)
-            thetas_unwrapped_fxp = Fxp(thetas_unwrapped).like(self.acc_t)
-            corrections = Fxp(np.exp(-1j * thetas_unwrapped_fxp)).like(self.acc_t)
-            y_pol = corrections * x_pol
-            y[pol, :] = y_pol
-        
-        return y
-def viterbi_viterbi_ref(self,
-                        x: np.ndarray,
-                        N: int,
-                        total_linewidth: float,
-                        snr_db: float,
-                        symbol_energy: float,
-                        pilots: np.ndarray) -> np.ndarray:
-    """
-    Viterbi–Viterbi carrier phase recovery with pilot-aided
-    π/2 ambiguity resolution.
-    """
-    K = len(x)
-    L = 2 * N + 1
-    w = self.viterbi_viterbi_ML(
-        total_linewidth, snr_db, symbol_energy, N
-    )
+            for i in range(len(pilots)):
+                idx = i * self.pilot_interval
+                if idx >= K:
+                    break
+    
+                theta_est = theta[idx]
+                theta_ref = Fxp(np.angle(x[pol, idx]) - pilots[pol][i]).like(self.theta_t)
+                k_amb = int(np.round((theta_ref - theta_est) / (np.pi / 2))) 
 
-    # Build sliding window (ignore edges)
-    z_blocks = np.zeros((L, K), dtype=complex)
-    for k in range(N, K - N):
-        z_blocks[:, k] = x[k - N:k + N + 1]
+                if current_amb is None:
+                    theta += Fxp(k_amb * np.pi/2).like(self.theta_t)
+                    current_amb = k_amb
+                elif k_amb != current_amb: #cycle slip has occurred
+                    delta = Fxp((k_amb - current_amb) * np.pi/2).like(self.theta_t)
+                    theta[idx:] += delta
+                    current_amb = k_amb
+    
+            # Apply correction using CORDIC
+            y[pol, :] = self.cordic.complex_rotate(x[pol, :], -theta)
 
-    # Fourth-power phase
-    phi4 = np.angle(w.conj() @ (z_blocks ** 4))
-
-    # Correct unwrapping (BEFORE dividing by 4)
-    phi4 = np.unwrap(phi4)
-
-    # Phase estimate
-    theta = phi4 / 4
-
-    # --- Pilot-based π/2 ambiguity resolution ---
-    for i, theta_pilot in enumerate(pilots):
-        idx = i * self.pilot_interval
-        if idx >= K:
-            break
-
-        theta_est = theta[idx]
-        k_amb = np.round((theta_pilot - theta_est) / (np.pi / 2))
-        theta += k_amb * (np.pi / 2)
-
-    # Apply correction
-    y = x * np.exp(-1j * theta)
-
-    return y
-
-
-
+        return Fxp(y).like(self.acc_t)
 
 
