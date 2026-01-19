@@ -23,13 +23,13 @@ def test_viterbi_viterbi():
     #Test parameters
     sps = 8
     symbol_rate = 32
-    total_linewidth = 1e5
+    total_linewidth = 1e6
     snr = 20
     symbol_energy = 1
     N = 5
     DW_acc = 16
     DW_io = 8
-    num_symbols = 2**10
+    num_symbols = 2**12
     M = 4
     pilot_interval = 20
     
