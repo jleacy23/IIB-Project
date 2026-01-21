@@ -21,7 +21,7 @@ def test_fft_width():
     sps = 1
     SNR = 20 
 
-    M = 16 
+    M = 64
 
     
     modulator = Modulator(M, 1)
@@ -29,6 +29,7 @@ def test_fft_width():
     demodulator = Demodulator(M, 1)
 
     x = modulator.modulate(num_symbols)
+    print(x.shape)
 
     ser_results = {}
     bits_results = {}
@@ -38,8 +39,8 @@ def test_fft_width():
         x_noisy = channel.add_AWGN(x.reshape(1,-1))
         x_noisy = channel.add_chromatic_dispersion(x_noisy)[0]
         # scale so that 95% of values in range +- 1
-        x_noisy = x_noisy / np.percentile(np.abs(x_noisy), 95)
-        x_noisy = x_noisy[0] TODO: clean up cd_equalizer to handle multiple pols
+        scaling = np.percentile(np.abs(x_noisy), 95)
+        x_noisy = x_noisy / scaling
 
         ser_vals = []
 
@@ -53,11 +54,16 @@ def test_fft_width():
             y_eq = cd_equalizer.equalize(x_fxp)
 
             y_eq_np = np.array([val.get_val() for val in y_eq])
+            y_eq_np = np.reshape(y_eq_np, (1, -1))
             y_decided = demodulator.decide(y_eq_np)
-            ser = np.sum(y_decided != x) / len(x)
+            ser = np.sum(y_decided != x) / len(x[0])
             ser_vals.append(ser)
 
         ser_results[SNR] = ser_vals
+
+        #print scaling factor
+        print(f"SNR={SNR}dB, Scaling factor to fit 95% of samples in +-1: {scaling:.4f}")
+
     
     # plot results showing accumulator width and SNR on bar chart
     plt.figure()
@@ -173,6 +179,5 @@ def bits_per_symbol(N_fft, N_cd, DW):
     return total_bits
 
 
-
 if __name__ == "__main__":
-    test_io_width()
+    test_fft_width()

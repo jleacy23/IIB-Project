@@ -7,7 +7,7 @@ class Carrier_Recovery:
         self.symbol_rate = symbol_rate * 1e9 # GHz -> Hz
         self.sps = sps
         self.acc_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_acc-3}-complex') 
-        self.theta_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_acc-3}') # Account for unwrapping
+        self.theta_t = Fxp(dtype=f'fxp-s{DW_acc}/{DW_acc-4}') 
         self.pilot_interval = pilot_interval
         self.cordic = Cordic(iterations=DW_acc-3, word_length=DW_acc)
 
@@ -107,40 +107,36 @@ class Carrier_Recovery:
             # Fourth-power phase
             z_blocks_4 = Fxp(z_blocks * z_blocks * z_blocks * z_blocks).like(self.acc_t)
             est = Fxp(w_fxp.conj().dot(z_blocks_4)).like(self.acc_t)
-            phi4 = self.cordic.complex_phase(est)
+            phi4 = self.cordic.complex_phase(est) # wrapped to [-pi, pi]
 
             # Only use every 'step' samples to reduce complexity
             phi4 = np.repeat(phi4[::step], step)[:K]
-    
+
+            #compute phase difference between samples
+            phi4_diff = Fxp(np.ediff1d(phi4)).like(self.theta_t)
+            if phi4_diff.status['overflow']:
+                print("Warning: Overflow detected in phase difference computation.")
+
+            # unwrap phase differences
+            phi4_diff = np.unwrap(phi4_diff.get_val())
+
+            phi4_corr = np.zeros_like(phi4)
+            # accumulate unwrapped differences
+            for i in range(1, len(phi4)):
+                corr = phi4_corr[i] + phi4_diff[i-1]
+                # wrap back to [-pi, pi]
+                if corr > np.pi:
+                    corr -= 2 * np.pi
+                elif corr < -np.pi:
+                    corr += 2 * np.pi
+                phi4_corr[i] = corr
+            phi4_corr = Fxp(phi4_corr).like(self.theta_t)
+            if phi4_corr.status['overflow']:
+                print("Warning: Overflow detected in phase unwrapping.")
+
             # Phase estimate
-            theta = Fxp(phi4 / 4 - np.pi / 4).like(self.theta_t)
-    
-            # Phase ambiguity and cycle slip correction with pilots
-            current_amb = None
+            theta = Fxp(phi4_corr / 4 - np.pi / 4).like(self.theta_t)
 
-            #for i in range(P):
-             #   idx = i * self.pilot_interval
-              #  if idx >= K:
-               #     break
-    
-                #theta_est = theta[idx]
-                #theta_ref = Fxp(np.angle(x[pol, idx]) - pilots[pol][i]).like(self.theta_t)
-                #k_amb = int(np.round((theta_ref - theta_est) / (np.pi / 2))) 
-
-                #if current_amb is None:
-                    #theta += Fxp(k_amb * np.pi/2).like(self.theta_t)
-                    #current_amb = k_amb
-                #elif k_amb != current_amb: #cycle slip has occurred
-                 #   delta = Fxp((k_amb - current_amb) * np.pi/2).like(self.theta_t)
-                  #  theta[idx:] += delta
-                   # current_amb = k_amb
-
-            #wrap to [-pi, pi]
-           # theta_np = theta.get_val()
-            #theta_np = (theta_np + np.pi) % (2 * np.pi) - np.pi
-            #theta = Fxp(theta_np).like(self.theta_t)
-            
-            # Apply correction using CORDIC
             y[pol, :] = self.cordic.complex_rotate(x[pol, :], -theta)
 
         return Fxp(y).like(self.acc_t)
